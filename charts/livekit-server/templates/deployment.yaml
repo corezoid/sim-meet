@@ -1,0 +1,213 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "livekit-server.fullname" . }}
+  labels:
+    {{- include "livekit-server.labels" . | nindent 4 }}
+  {{- if .Values.global.livekit.deploymentAnnotations }}
+  annotations:
+    {{- toYaml .Values.global.livekit.deploymentAnnotations | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not .Values.global.livekit.autoscaling.enabled }}
+  replicas: {{ .Values.global.livekit.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "livekit-server.selectorLabels" . | nindent 6 }}
+  {{- if .Values.global.livekit.deploymentStrategy }}
+  strategy:
+    {{- toYaml .Values.global.livekit.deploymentStrategy | nindent 4 }}
+  {{- end }}
+  template:
+    metadata:
+      {{- with .Values.global.livekit.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      labels:
+        {{- include "livekit-server.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.livekit.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "livekit-server.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.global.livekit.podSecurityContext | nindent 8 }}
+      {{- if .Values.global.livekit.podHostNetwork }}
+      dnsPolicy: ClusterFirstWithHostNet
+      hostNetwork: true
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.global.terminationGracePeriodSeconds }}
+      initContainers:
+        - name: init-wait-valkey-host-resolve
+          image: {{ .Values.global.imageInit.repository }}:{{ .Values.global.imageInit.tag }}
+          imagePullPolicy: IfNotPresent
+          command: ["sh"]
+          args:
+            - "-c"
+            - |
+              until IP=$(nslookup ${VALKEY_HOST} 2>/dev/null | grep "Address: " | sed 's/.*: //g;s/ .*//g'); [ -n "$IP" ]; do
+                echo "Waiting for Valkey IP resolution";
+                sleep 2;
+              done
+          env:
+            - name: VALKEY_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: valkey-secrets
+                  key: host
+
+        - name: init-wait-valkey-port-access
+          image: {{ .Values.global.imageInit.repository }}:{{ .Values.global.imageInit.tag }}
+          imagePullPolicy: IfNotPresent
+          command: ["sh"]
+          args:
+            - "-c"
+            - |
+              until nc -zw1 ${VALKEY_HOST} ${VALKEY_PORT}; do
+                echo "Waiting for Valkey port";
+                sleep 2;
+              done
+          env:
+            - name: VALKEY_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: valkey-secrets
+                  key: host
+            - name: VALKEY_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: valkey-secrets
+                  key: port
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.global.livekit.securityContext | nindent 12 }}
+          image: "{{ .Values.global.livekit.image.repository }}:{{ .Values.global.livekit.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.global.livekit.image.pullPolicy }}
+          args: ["--disable-strict-config"]
+          env:
+            - name: LIVEKIT_CONFIG
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "livekit-server.fullname" . }}
+                  key: config.yaml
+            - name: VALKEY_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: valkey-secrets
+                  key: host
+            - name: VALKEY_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: valkey-secrets
+                  key: port
+            - name: VALKEY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: valkey-secrets
+                  key: password
+            {{- if and .Values.global.livekit.config.turn.enabled .Values.global.livekit.config.turn.tls_port (not .Values.global.livekit.config.turn.external_tls) }}
+            - name: LIVEKIT_TURN_CERT
+              value: /etc/lkcert/tls.crt
+            - name: LIVEKIT_TURN_KEY
+              value: /etc/lkcert/tls.key
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.global.livekit.config.port }}
+              protocol: TCP
+            {{- if .Values.global.livekit.config.rtc.udp_port }}
+            - name: rtc-udp
+              containerPort: {{ .Values.global.livekit.config.rtc.udp_port }}
+              hostPort: {{ .Values.global.livekit.config.rtc.udp_port }}
+              protocol: UDP
+            {{- end }}
+            {{- if .Values.global.livekit.config.rtc.tcp_port }}
+            - name: rtc-tcp
+              containerPort: {{ .Values.global.livekit.config.rtc.tcp_port }}
+              hostPort: {{ .Values.global.livekit.config.rtc.tcp_port }}
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.global.livekit.config.prometheus_port }}
+            - name: metrics
+              containerPort: {{ .Values.global.livekit.config.prometheus_port }}
+              hostPort: {{ .Values.global.livekit.config.prometheus_port }}
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.global.livekit.config.turn.enabled }}
+            {{- if .Values.global.livekit.config.turn.tls_port }}
+            - name: turn-tls
+              containerPort: {{ .Values.global.livekit.config.turn.tls_port }}
+              hostPort: {{ .Values.global.livekit.config.turn.tls_port }}
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.global.livekit.config.turn.udp_port }}
+            - name: turn-udp
+              containerPort: {{ .Values.global.livekit.config.turn.udp_port }}
+              hostPort: {{ .Values.global.livekit.config.turn.udp_port }}
+              protocol: UDP
+            {{- end }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 3
+            timeoutSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 3
+            timeoutSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.global.livekit.resources | nindent 12 }}
+          {{- if or .Values.global.livekit.storeKeysInSecret.enabled (and .Values.global.livekit.config.turn.enabled .Values.global.livekit.config.turn.tls_port (not .Values.global.livekit.config.turn.external_tls)) }}
+          volumeMounts:
+          {{- if .Values.global.livekit.storeKeysInSecret.enabled }}
+            - name: keys-volume
+              mountPath: {{ .Values.global.livekit.key_file }}
+              subPath: {{ .Values.global.livekit.key_file }}
+          {{- end }}
+          {{- if and .Values.global.livekit.config.turn.enabled .Values.global.livekit.config.turn.tls_port (not .Values.global.livekit.config.turn.external_tls) }}
+            - name: lkturncert
+              mountPath: /etc/lkcert
+              readOnly: true
+          {{- end }}
+          {{- end }}
+      {{- if or .Values.global.livekit.storeKeysInSecret.enabled (and .Values.global.livekit.config.turn.enabled .Values.global.livekit.config.turn.tls_port (not .Values.global.livekit.config.turn.external_tls)) }}
+      volumes:
+        {{- if .Values.global.livekit.storeKeysInSecret.enabled }}
+        - name: keys-volume
+          secret:
+            secretName: {{ (tpl .Values.global.livekit.storeKeysInSecret.existingSecret .) | default (include "livekit-server.fullname" .) }}
+            defaultMode: 0600
+      {{- end }}
+      {{- if and .Values.global.livekit.config.turn.enabled .Values.global.livekit.config.turn.tls_port (not .Values.global.livekit.config.turn.external_tls) }}
+        - name: lkturncert
+          secret:
+            secretName: {{ required "tls secret required if turn enabled" .Values.global.livekit.config.turn.secretName }}
+      {{- end }}
+      {{- end }}
+      {{- with .Values.global.livekit.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.global.livekit.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.global.livekit.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

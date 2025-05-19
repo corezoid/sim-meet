@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: valkey-livekit-policy
+  labels:
+    {{- include "livekit.valkey.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      tier: {{ .Values.appName }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: livekit-server
+      ports:
+        - protocol: TCP
+          port: {{ .Values.appPort }}

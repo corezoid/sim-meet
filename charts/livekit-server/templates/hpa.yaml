@@ -1,0 +1,44 @@
+{{- if .Values.global.livekit.autoscaling.enabled }}
+{{- if semverCompare ">=1.23-0" .Capabilities.KubeVersion.GitVersion }}
+apiVersion: autoscaling/v2
+{{- else }}
+apiVersion: autoscaling/v2beta1
+{{- end }}
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "livekit-server.fullname" . }}
+  labels:
+    {{- include "livekit-server.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "livekit-server.fullname" . }}
+  minReplicas: {{ .Values.global.livekit.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.global.livekit.autoscaling.maxReplicas }}
+  metrics:
+    {{- if .Values.global.livekit.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        {{- if semverCompare ">=1.23-0" .Capabilities.KubeVersion.GitVersion }}
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.global.livekit.autoscaling.targetCPUUtilizationPercentage }}
+        {{- else }}
+        targetAverageUtilization: {{ .Values.global.livekit.autoscaling.targetCPUUtilizationPercentage }}
+        {{- end }}
+    {{- end }}
+    {{- if .Values.global.livekit.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        {{- if semverCompare ">=1.23-0" .Capabilities.KubeVersion.GitVersion }}
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.global.livekit.autoscaling.targetMemoryUtilizationPercentage }}
+        {{- else }}
+        targetAverageUtilization: {{ .Values.global.livekit.autoscaling.targetMemoryUtilizationPercentage }}
+        {{- end }}
+    {{- end }}
+{{- end }}

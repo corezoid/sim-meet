@@ -1,0 +1,29 @@
+{{- if .Values.global.livekit.config.turn.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: '{{ include "livekit-server.fullname" . }}-turn'
+  labels:
+    {{- include "livekit-server.labels" . | nindent 4 }}
+  {{- with .Values.global.livekit.config.turn.loadBalancerAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ default "LoadBalancer" .Values.global.livekit.config.turn.serviceType }}
+  ports:
+    {{- if .Values.global.livekit.config.turn.tls_port }}
+    - name: turn-tls
+      port: 443
+      protocol: TCP
+      targetPort: turn-tls
+    {{- end }}
+    {{- if .Values.global.livekit.config.turn.udp_port }}
+    - name: turn-udp
+      port: {{ .Values.global.livekit.config.turn.udp_port }}
+      protocol: UDP
+      targetPort: turn-udp
+    {{- end }}
+  selector:
+    {{- include "livekit-server.selectorLabels" . | nindent 4 }}
+{{- end }}

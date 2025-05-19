@@ -1,0 +1,34 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "egress.fullname" . }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "egress.fullname" . }}
+  minReplicas: {{ .Values.global.egress.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.global.egress.autoscaling.maxReplicas }}
+  metrics:
+    - type: Object
+      object:
+        metric:
+          name: livekit_egress_available  # Кастомная метрика, определяющая доступные инстансы
+        describedObject:
+          apiVersion: apps/v1
+          kind: Deployment
+          name: {{ include "egress.fullname" . }}
+        target:
+          type: Value
+          value: 3
+    - type: Object
+      object:
+        metric:
+          name: kube_pod_labels
+        describedObject:
+          apiVersion: apps/v1
+          kind: Deployment
+          name: {{ include "egress.fullname" . }}
+        target:
+          type: Utilization
+          averageValue: 30

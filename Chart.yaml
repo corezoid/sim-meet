@@ -1,0 +1,27 @@
+apiVersion: v2
+name: sim-meet
+description: Real-time infrastructure for developers. LiveKit is the open source stack for streaming audio, video, and data.
+type: application
+version: 1.8.0
+appVersion: "v1.8.0"
+
+sources:
+  - https://github.com/livekit/livekit
+
+dependencies:
+  - name: livekit-server
+    version: "1.8.0"
+    repository: "file://charts/livekit-server"
+  - name: egress
+    version: "1.8.4"
+    repository: "file://charts/egress"
+  - name: meet-agent
+    version: "0.1.0"
+    repository: "file://charts/meet-agent"
+  - name: valkey-livekit
+    version: "0.0.1"
+    repository: "file://charts/valkey-livekit"
+  - name: meet-agent-stream
+    version: "1.0.0"
+    repository: "oci://hub.corezoid.com/public"
+    condition: global.meet_agent_stream.enabled

@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "meet-agent.fullname" . }}
+  labels:
+    {{- include "meet-agent.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.global.meet_agent.autoscaling.enabled }}
+  replicas: {{ .Values.global.meet_agent.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "meet-agent.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.global.meet_agent.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "meet-agent.labels" . | nindent 8 }}
+        {{- with .Values.global.meet_agent.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- if .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+      {{- range $pullSecret := .Values.global.imagePullSecrets }}
+        - name: {{ $pullSecret.name }}
+      {{- end }}
+      {{- end }}
+      serviceAccountName: {{ include "meet-agent.serviceAccountName" . }}
+      terminationGracePeriodSeconds: {{ .Values.global.terminationGracePeriodSeconds | default 18000 }}
+      securityContext:
+        {{- toYaml .Values.global.meet_agent.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.global.meet_agent.securityContext | nindent 12 }}
+          image: "{{ .Values.global.meet_agent.image.registry }}/{{ .Values.global.meet_agent.image.repository }}:{{ .Values.global.meet_agent.control_meet_agent.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.global.meet_agent.image.pullPolicy }}
+          env:
+            - name: CONFIG_FILE
+              value: "/opt/config.yaml"
+          ports:
+            - name: http
+              containerPort: {{ .Values.global.meet_agent.service.port }}
+              protocol: TCP
+          livenessProbe:
+            {{- toYaml .Values.global.meet_agent.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.global.meet_agent.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.global.meet_agent.resources | nindent 12 }}
+          volumeMounts:
+            - name: {{ .Values.appName }}-config-volume
+              mountPath: /opt/config.yaml
+              subPath: config.yaml
+      volumes:
+        - name: {{ .Values.appName }}-config-volume
+          configMap:
+            name: {{ include "meet-agent.fullname" . }}-configmap
+      {{- with .Values.global.meet_agent.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.global.meet_agent.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.global.meet_agent.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

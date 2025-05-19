@@ -1,0 +1,8 @@
+{{- if or (eq .Values.global.livekit.loadBalancer.type "gke") (eq .Values.global.livekit.loadBalancer.type "gke-managed-cert") (eq .Values.global.livekit.loadBalancer.type "gke-vpc-native") (eq .Values.global.livekit.loadBalancer.type "gclb") -}}
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: {{ include "livekit-server.fullname" . }}
+spec:
+  {{ .Values.global.livekit.gcp.backendConfig | toPrettyJson }}
+{{ end }}
