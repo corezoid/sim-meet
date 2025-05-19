@@ -1,0 +1,50 @@
+-------------------------------------------------------------------------------
+
+LiveKit {{ .Values.global.livekit.image.tag | default .Chart.AppVersion }} has been deployed!
+
+Please ensure that the following ports on the nodes are open on your firewall.
+
+{{- if .Values.global.livekit.config.rtc.udp_port }}
+* WebRTC UDP {{ .Values.global.livekit.config.rtc.udp_port }}
+{{- else }}
+* WebRTC UDP {{ .Values.global.livekit.config.rtc.port_range_start}} - {{ .Values.global.livekit.config.rtc.port_range_end}}
+{{- end }}
+* WebRTC TCP {{ .Values.global.livekit.config.rtc.tcp_port }}
+{{- if .Values.global.livekit.config.turn.enabled }}
+{{- if .Values.global.livekit.config.turn.udp_port }}
+* TURN/UDP {{ .Values.global.livekit.config.turn.udp_port }}
+{{- end }}
+{{- if .Values.global.livekit.config.turn.tls_port }}
+* TURN/TLS {{ .Values.global.livekit.config.turn.tls_port }}
+{{- end }}
+{{- end }}
+
+{{- if ne .Values.global.livekit.loadBalancer.type "disable" }}
+
+Primary load balancer has been set up for the primary API endpoint. The
+following hosts should now be pointed at the load balancer.
+  {{- range .Values.global.livekit.loadBalancer.tls }}
+    {{- range .hosts }}
+  - {{ . }}
+    {{- end }}
+  {{- end }}
+
+To determine the load balancer address, run:
+  {{- if eq .Values.global.livekit.loadBalancer.type "aws" }}
+  $ kubectl get --namespace {{ .Release.Namespace }} service {{ include "livekit-server.fullname" . }}
+  {{- else }}
+  $ kubectl get --namespace {{ .Release.Namespace }} ingress {{ include "livekit-server.fullname" . }}
+  {{- end }}
+{{- else }}
+Load balancer has been disabled
+{{- end }}
+
+{{- if and .Values.global.livekit.config.turn.enabled .Values.global.livekit.config.turn.tls_port (not .Values.global.livekit.config.turn.external_tls) }}
+
+TURN/TLS has been deployed behind a load balancer, to determine its address, run:
+  $ kubectl get --namespace {{ .Release.Namespace }} service {{ include "livekit-server.fullname" . }}-turn
+You may now map the TURN/TLS domain {{ .Values.global.livekit.config.turn.domain }} to this address
+
+{{- end }}
+
+-------------------------------------------------------------------------------

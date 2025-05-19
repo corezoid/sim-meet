@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "egress.fullname" . }}
+  labels:
+    {{- include "egress.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.global.egress.autoscaling.enabled }}
+  replicas: {{ .Values.global.egress.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "egress.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+      {{- with .Values.global.egress.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      labels:
+        {{- include "egress.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "egress.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.global.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ .Values.global.terminationGracePeriodSeconds }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.global.securityContext | nindent 12 }}
+          image: "{{ .Values.global.egress.image.repository }}:{{ .Values.global.egress.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.global.egress.image.pullPolicy }}
+          env:
+            - name: EGRESS_CONFIG_BODY
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "egress.fullname" . }}
+                  key: config.yaml
+          ports:
+            {{- if .Values.global.egress.config.health_port }}
+            - name: health
+              containerPort: {{ .Values.global.egress.config.health_port }}
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.global.egress.config.prometheus_port }}
+            - name: metrics
+              containerPort: {{ .Values.global.egress.config.prometheus_port }}
+              protocol: TCP
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /
+              port: health
+          readinessProbe:
+            httpGet:
+              path: /
+              port: health
+          resources:
+            {{- toYaml .Values.global.egress.resources | nindent 12 }}
+      {{- with .Values.global.egress.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.global.egress.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.global.egress.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

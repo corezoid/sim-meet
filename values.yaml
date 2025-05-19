@@ -1,0 +1,310 @@
+# LiveKit Helm chart will set up a Deployment, Service, HPA, and Ingress as either
+# a single or multi-node LiveKit deployment.
+# After installing this chart, you would still need to
+# * Open ports on the firewall to the hosts (see https://docs.livekit.io/deploy/ports-firewall)
+# * Update DNS of hostnames to the ingress/service that were created
+global:
+  imageInit:
+    repository: hub.corezoid.com/hub.docker.com/library/alpine
+    pullPolicy: IfNotPresent
+    tag: "3.21"
+  repotype: "ctrl"
+  # imagePullSecrets:
+  #   - name: middleware-hub-secret
+  serviceMonitor:
+    enabled: true
+  dashboards:
+    enabled: true
+    annotations:
+      grafana_folder: 'Sim-Meet'
+    labels:
+      grafana_dashboard: 'true'
+  # Suggested value for gracefully terminate the pod: 5 hours
+  terminationGracePeriodSeconds: 18000
+  livekit:
+    # podHostNetwork: true
+    image:
+      repository: hub.corezoid.com/hub.docker.com/livekit/livekit-server
+      pullPolicy: IfNotPresent
+      tag: "v1.8.4"
+    autoscaling:
+      # set to true to enable autoscaling. when set, ignores replicaCount
+      enabled: false
+      minReplicas: 2
+      maxReplicas: 5
+      targetCPUUtilizationPercentage: 60
+    serviceAccount:
+      create: false
+    podAnnotations:
+      sidecar.istio.io/inject: "false"
+      linkerd.io/inject: disabled
+    podSecurityContext: {}
+    # fsGroup: 2000
+
+    securityContext: {}
+    # capabilities:
+    #   drop:
+    #   - ALL
+    # readOnlyRootFilesystem: true
+    # runAsNonRoot: true
+    # runAsUser: 1000
+    storeKeysInSecret:
+      enabled: false
+      # Use a pre existing secret, useful to combine with external secret managers
+      # as GCP External Secrets or Hashicorp Vault
+      existingSecret: ""
+      # Define your API keys and secrets as key-value pairs here. These will be stored in the secret.
+      # Example: keys:
+      #           my_api_key: my_api_secret
+      keys: {}
+      # key value pairs (<api_key>: >api_secret>)
+    replicaCount: 2
+    config:
+      port: 7880
+      # Uncomment to enable prometheus metrics
+      prometheus_port: 6789
+      log_level: info
+      rtc:
+        # node_ip: 15.197.78.144
+        # node_ip: 54.75.104.68
+        use_external_ip: true
+        enable_loopback_candidate: false
+        # use_ice_lite=true needed for Firefox and safari when used TURN
+        use_ice_lite: false
+        # default ports used
+        # port_range_start: 50000
+        # port_range_end: 60000
+        tcp_port: 7881
+        udp_port: 7882
+        stun_servers:
+          - freestun.net:3478
+          - stun.sipgate.net:3478
+          - stun.xten.com:3478
+          - stun.l.google.com:19302
+          - stun1.l.google.com:3478
+          # turn_servers:
+          # - host: freestun.net
+          #   port: 3478
+          #   # tls, tcp, or udp
+          #   protocol: udp
+          #   username: "free"
+          #   credential: "free"
+      redis:
+        address: valkey-livekit-service:6379
+        # username:
+        # password: ${VALKEY_PASSWORD}
+        # use_tls: true
+      # one or more API key/secret pairs
+      # see https://docs.livekit.io/guides/getting-started/#generate-api-key-and-secret
+      keys: {}
+      webhook:
+        api_key: simulator
+        urls:
+          - https://comapny.simulator.local/api/1.0/sip/webhooks
+      turn:
+        enabled: true
+        # must match domain of your TLS cert
+        domain: sim-meet-turn.simulator.localy
+        # TURN/TLS port over TCP. It must be 443 if TURN load balancer is disabled
+        tls_port: 5349
+        # TURN/UDP port, must be exposed on the firewall
+        # udp_port: 443
+        udp_port: 443
+        # uncomment if you will manage TLS termination for TURN, secretName is not used
+        # when external_tls is set
+        external_tls: true
+        # Kubernetes Secret containing TLS cert for <turn.myhost.com>
+        # See https://docs.livekit.io/deploy/kubernetes/#importing-ssl-certificates
+        # secretName: <tlssecret>
+        # set the Kubernetes serviceType for the TURN service. By default it sets it to "LoadBalancer"
+        # See kubernetes serviceTypes on official documentation: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
+        serviceType: "LoadBalancer"
+        loadBalancerAnnotations:
+          service.beta.kubernetes.io/aws-load-balancer-alpn-policy: "None"
+          service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout: "60"
+          service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+          service.beta.kubernetes.io/aws-load-balancer-name: "sim-meet-turn"
+          service.beta.kubernetes.io/aws-load-balancer-type: "external"
+          service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
+          service.beta.kubernetes.io/aws-load-balancer-subnets: subnet-public-1,subnet-public-2,subnet-public-3
+          service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+          service.beta.kubernetes.io/aws-load-balancer-target-group-attributes: "stickiness.enabled=true,stickiness.type=source_ip,preserve_client_ip.enabled=true"
+          service.beta.kubernetes.io/aws-load-balancer-healthcheck-port: "7881"
+          service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: "TCP"
+          service.beta.kubernetes.io/aws-load-balancer-ssl-cert: "arn:aws:acm:eu-west-1:123456789012:certificate/51b76cc3-c34c-61d3-ff9f-15a770aa5308"
+          service.beta.kubernetes.io/aws-load-balancer-ssl-negotiation-policy: "ELBSecurityPolicy-TLS13-1-2-2021-06"
+          service.beta.kubernetes.io/aws-load-balancer-ip-address-type: ipv4
+    loadBalancer:
+      # valid values: disable, alb, aws, gke, gke-managed-cert, gke-native-vpc, do
+      # on AWS, we recommend using alb load balancer, which supports TLS termination
+      # * in order to use alb, aws-ingress-controller must be installed
+      #   https://docs.aws.amazon.com/eks/latest/userguide/alb-ingress.html
+      # * for gke-managed-cert type follow https://cloud.google.com/kubernetes-engine/docs/how-to/managed-certs
+      #   and set staticIpName to your reserved static IP, and certificateName to be
+      #   name of the managed cert
+      # * for do uncomment clusterIssuer with your cert manager issuer
+      type: aws
+      # staticIpName: <nameofIpAddressCreated>
+      # certificateName: <nameOfCert>
+      # clusterIssuer: letsencrypt-prod
+      tls:
+        - hosts:
+            - sim-meet.simulator.localy
+      #   with alb, certificates needs to reside in ACM for self-discovery
+      #   with do, use cert-manager and create certificate for turn. Load balancer is autoamtic
+      #   with gke, specify one or more secrets to use for the certificate
+      #   see: https://cloud.google.com/kubernetes-engine/docs/how-to/ingress-multi-ssl#specifying_certificates_for_your_ingress
+      #     secretName: <mysecret>
+      servicePort: 443
+      annotations:
+        service.beta.kubernetes.io/aws-load-balancer-alpn-policy: "None"
+        service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout: "60"
+        service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+        service.beta.kubernetes.io/aws-load-balancer-name: "sim-meet"
+        service.beta.kubernetes.io/aws-load-balancer-type: "external"
+        service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
+        service.beta.kubernetes.io/aws-load-balancer-subnets: subnet-public-1,subnet-public-2,subnet-public-3
+        service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+        service.beta.kubernetes.io/aws-load-balancer-target-group-attributes: "stickiness.enabled=true,stickiness.type=source_ip,preserve_client_ip.enabled=true"
+        service.beta.kubernetes.io/aws-load-balancer-healthcheck-port: "7881"
+        service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: "TCP"
+        service.beta.kubernetes.io/aws-load-balancer-ssl-cert: "arn:aws:acm:eu-west-1:123456789012:certificate/51b76cc3-c34c-61d3-ff9f-15a770aa5308"
+        service.beta.kubernetes.io/aws-load-balancer-ssl-negotiation-policy: "ELBSecurityPolicy-TLS13-1-2-2021-06"
+        service.beta.kubernetes.io/aws-load-balancer-ip-address-type: ipv4
+    affinity: {}
+    tolerations: []
+    # if LiveKit should run only on specific nodes
+    # this can be used to isolate designated nodes
+    nodeSelector: {}
+    # node.kubernetes.io/instance-type: c5.2xlarge
+
+    resources: {}
+    # Due to port restrictions, you can run only one instance of LiveKit per physical
+    # node. Because of that, we recommend giving it plenty of resources to work with
+    # limits:
+    #   cpu: 6000m
+    #   memory: 2048Mi
+    # requests:
+    #   cpu: 4000m
+    #   memory: 1024Mi
+  valkey:
+    data:
+      secret:
+        host: "valkey-livekit-service"
+        port: "6379"
+        password: "VALKEY_PASSWORD"
+  egress:
+    autoscaling:
+      enabled: true
+      minReplicas: 3
+      maxReplicas: 5
+    replicaCount: 3
+    config:
+      logging:
+        level: debug
+      ws_url: wss://sim-meet.simulator.localy
+      api_key: API_KEY
+      api_secret: API_SECRET
+      health_port: 8080
+      prometheus_port: 9090
+      enable_chrome_sandbox: true
+      redis:
+        address: valkey-livekit-service:6379
+      s3:
+        #   access_key: <access_key>
+        #   secret: <secret>
+        region: "eu-west-1"
+        bucket: "livekit-bucket"
+    image:
+      repository: hub.corezoid.com/hub.docker.com/livekit/egress
+      pullPolicy: IfNotPresent
+      tag: "v1.9.0"
+    resources:
+      limits:
+        memory: 4000Mi
+      requests:
+        cpu: 2000m
+        memory: 2000Mi
+    serviceAccount:
+      create: true
+      annotations: {}
+      name: ""
+    affinity: {}
+    tolerations: []
+  meet_agent:
+    image:
+      registry: hub.corezoid.com
+      repository: public/ctrl-control-meet-agent
+    control_meet_agent:
+      tag: "1.1.8"
+    config:
+      control:
+        api_url: https://company.simulator.localy
+      agent:
+        api_url: wss://sim-meet.simulator.localy
+        api_key: API_KEY
+        api_secret: API_SECRET
+        avatar: https://company.simulator.localy/static/ai_agent.png
+        stt:
+          # deepgram:
+          #   api_key: DEEPGRAM_API_KEY
+          aws:
+            region: AMAZON_TRANSLATE_REGION #eu-west-1
+      # Single Account secret token for JWT
+      secret_key: ACCOUNT_SECRET_KEY
+    serviceAccount:
+      # Specifies whether a service account should be created
+      create: true
+      # Annotations to add to the service account
+      annotations: {}
+      # The name of the service account to use.
+      # If not set and create is true, a name is generated using the fullname template
+      name: ""
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 4
+    service:
+      port: 8081
+    affinity: {}
+    tolerations: []
+  meet_agent_stream:
+    enabled: false
+    image:
+      registry: hub.corezoid.com
+      repository: public/ctrl-control-meet-agent-stream
+    control_meet_agent_stream:
+      tag: "1.0.1"
+    serviceAccount:
+      create: true
+      annotations: {}
+    autoscaling:
+      enabled: false
+    config:
+      log_level: info
+      agent:
+        api_key: AGENT_API_KEY
+        api_secret: AGENT_API_SECRET
+        api_url: wss://sim-meet.simulator.localy
+      rooms:
+        - id: ROOMS_ID
+          streams:
+            - url: rtsp://URL
+              name: NAME
+    secret_storage:
+      provider: aws
+      aws_secret_region: AWS_SECRET_REGION #eu-west-1
+      aws_secret_names: AWS_SECRET_NAME
+    volumes:
+      - name: config-volume
+        configMap:
+          name: sim-meet-meet-agent-stream
+          items:
+            - key: config.yaml
+              path: config.yaml
+    volumeMounts:
+      - name: config-volume
+        mountPath: /app/config.yaml
+        subPath: config.yaml # Используем subPath чтобы монтировать только один файл
+    affinity: {}
+    tolerations: []
